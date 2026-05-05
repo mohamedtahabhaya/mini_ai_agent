@@ -1,0 +1,26 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv/
+env/
+
+# Clés secrètes et configuration
+.env
+api-keys/
+
+# Bases de données 
+*.sqlite
+*.sqlite-*
+data/
+
+# Logs et rapports
+*.log
+
+# Fichiers systèmes Mac
+.DS_Store
