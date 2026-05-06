@@ -6,8 +6,9 @@ from pymongo import MongoClient
 from langgraph.checkpoint.mongodb import MongoDBSaver
 from graph import builder
 
-URI_MONGODB = "mongodb://localhost:27017"
-client = MongoClient(URI_MONGODB)
+
+mongodb_uri = os.getenv("URI_MONGODB")
+client = MongoClient(mongodb_uri)
 
 memory = MongoDBSaver(client)
 mon_agent = builder.compile(checkpointer=memory)
