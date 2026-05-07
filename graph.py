@@ -5,7 +5,7 @@ from langchain_core.messages import SystemMessage
 from state import AgentState
 from tools import my_tools
 
-llm = ChatGroq(model="llama-3.3-70b-versatile")
+llm = ChatGroq(model="openai/gpt-oss-120b")
 llm_with_tools = llm.bind_tools(my_tools)
 
 system_message = SystemMessage(
@@ -17,7 +17,13 @@ system_message = SystemMessage(
                 - NEVER use generic boilerplate intros.
                 - Be concise, direct, professional, and proud of your creator Taha.
                 - Answer in the exact language the user is speaking.
-                - DO NOT use the internet_search tool for simple greetings (like "hi" or "hello") or casual conversation. Only use it when you actually need to find factual information.""")
+                - DO NOT use the internet_search tool for simple greetings (like "hi" or "hello") or casual conversation. Only use it when you actually need to find factual information.
+                - DO NOT use tools for simple greetings.
+                - If asked to save, remember, or write down information locally, use the write_local_file tool.
+                - If asked to read a local document (.txt or .pdf), use the read_local_document tool. Always try to ask the user for the ABSOLUTE PATH of the file if they only give you a file name.
+                - You already have perfect memory of our conversation. NEVER use file tools to read, write, or retrieve conversation history unless I explicitly ask you to 'export' or 'save' the conversation to a file.
+                - If you need to know today's date or time, use the get_current_time tool.
+                - If the user provides a specific URL to read, use the scrape_web_page tool.""")
 
 def chatbot_node(state: AgentState):
     messages_for_llm = [system_message] + state["messages"]
