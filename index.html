@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>My AI Agent</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f0f2f5; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
         .chat-container { background: white; width: 100%; max-width: 500px; height: 80vh; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); display: flex; flex-direction: column; overflow: hidden; }
@@ -22,7 +23,7 @@
 <body>
 
 <div class="chat-container">
-    <div class="chat-header">🤖 AI Agent Custom</div>
+    <div class="chat-header"> AI Agent Custom</div>
     <div class="chat-messages" id="chat-messages">
         <div class="message bot">Hi ! Ask me a question.</div>
         <div class="loading" id="loading">Thinking...</div>
@@ -41,41 +42,83 @@
 
         addMessage(messageText, "user");
         inputField.value = "";
+        scrollToBottom();
 
-        document.getElementById("loading").style.display = "block";
+        let isApprov = false;
+        let textePropre = messageText.trim().toLowerCase();
+        
+        let contientOui = /\b(yes|oui|ok|go|vas-y|send|approuvé|approved|accept)\b/.test(textePropre);
+        let contientNon = /\b(no|non)\b/.test(textePropre);
+        
+        if (contientOui && !contientNon) {
+            isApprov = true;
+        }
+
+        const chatMessages = document.getElementById("chat-messages");
+        const loadingDiv = document.getElementById("loading");
+        
+        const aiBubble = document.createElement("div");
+        aiBubble.classList.add("message", "bot");
+        
+        const aiContent = document.createElement("span");
+        aiContent.innerHTML = "<em>Thinking...</em>";
+        
+        aiBubble.appendChild(aiContent);
+        chatMessages.insertBefore(aiBubble, loadingDiv);
         scrollToBottom();
 
         try {
-            let isApprov = false;
-            let textePropre = messageText.trim().toLowerCase();
-
-            const motsApprobation = ["yes", "oui", "ok", "go", "vas-y", "send", "approuvé", "approved", "accept"];
-
-            let contientOui = motsApprobation.some(mot => textePropre.includes(mot));
-            let contientNon = textePropre.includes("no") || textePropre.includes("non");
-
-            if (contientOui && !contientNon) {
-                isApprov = true;
-            }
             const response = await fetch("http://127.0.0.1:8000/chat", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({  
                     message: messageText,
-                    session_id: "agent5",
+                    session_id: "agent8",
                     is_approval: isApprov
                 })
             });
 
-            const data = await response.json();
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = "";
+            let rawMarkdown = ""; 
+            
+            aiContent.innerHTML = "";
 
-            document.getElementById("loading").style.display = "none";
-            addMessage(data.response, "bot");
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
 
+                buffer += decoder.decode(value, { stream: true });
+                let parts = buffer.split("\n\n");
+                buffer = parts.pop(); 
+
+                for (let part of parts) {
+                    if (part.startsWith("data: ")) {
+                        try {
+                            let jsonStr = part.substring(6);
+                            let jsonData = JSON.parse(jsonStr);
+                            
+                            if (jsonData.type === "token" || jsonData.type === "approval") {
+                                rawMarkdown += jsonData.content;
+                                if (typeof marked !== 'undefined') {
+                                    aiContent.innerHTML = marked.parse(rawMarkdown);
+                                } else {
+                                    aiContent.innerHTML = rawMarkdown;
+                                }
+                            } else if (jsonData.type === "error") {
+                                aiContent.innerHTML += `<br><span style='color:red;'>Server Error: ${jsonData.content}</span>`;
+                            }
+                            scrollToBottom();
+                        } catch (parseError) {
+                            console.error("JSON Error:", parseError, "on part:", part);
+                        }
+                    }
+                }
+            }
         } catch (error) {
-            document.getElementById("loading").style.display = "none";
-            addMessage("Erreur : Impossible de se connecter à l'API. Le serveur est-il lancé ?", "bot");
             console.error("Erreur Fetch:", error);
+            aiContent.innerHTML = "Erreur de connexion au serveur.";
         }
     }
 
