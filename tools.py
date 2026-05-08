@@ -1,11 +1,24 @@
 import os
 import requests
 import pypdf
+import imaplib
+import smtplib
+import email
+import os.path
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.header import decode_header
 from datetime import datetime
 from bs4 import BeautifulSoup
 from pydantic import BaseModel, Field
 from langchain_core.tools import tool
 from langchain_tavily import TavilySearch
+from dotenv import load_dotenv
+load_dotenv()
 
 class SearchSchema(BaseModel):
     query: str = Field(description="The exact search query to type on the Internet")
@@ -87,4 +100,157 @@ def scrape_web_page(url: str) -> str:
     except Exception as e:
         return f"Error: Could not read the web page. {str(e)}"
 
-my_tools = [internet_search, write_local_file, read_local_document, get_current_time, scrape_web_page]
+class ReadEmailSchema(BaseModel):
+    limit: int = Field(default=3, description="The number of recent emails to fetch (default is 3)")
+
+@tool(args_schema=ReadEmailSchema)
+def read_recent_emails(limit: int = 3) -> str:
+    """Tool to read the most recent emails from the user's Gmail inbox."""
+    email_user = os.getenv("EMAIL_ADDRESS")
+    email_pass = os.getenv("EMAIL_PASSWORD")
+
+    if not email_user or not email_pass:
+        return "Error: EMAIL_ADDRESS or EMAIL_PASSWORD not found in .env file."
+
+    try:
+        mail = imaplib.IMAP4_SSL("imap.gmail.com")
+        mail.login(email_user, email_pass)
+        mail.select("inbox")
+
+        status, messages = mail.search(None, "ALL")
+        email_ids = messages[0].split()
+
+        if not email_ids:
+            return "The inbox is empty."
+
+        latest_email_ids = email_ids[-limit:]
+        
+        email_summaries = []
+        for e_id in reversed(latest_email_ids):
+            status, msg_data = mail.fetch(e_id, "(RFC822)")
+            for response_part in msg_data:
+                if isinstance(response_part, tuple):
+                    msg = email.message_from_bytes(response_part[1])
+                    
+                    subject, encoding = decode_header(msg["Subject"])[0]
+                    if isinstance(subject, bytes):
+                        subject = subject.decode(encoding if encoding else "utf-8", errors="ignore")
+                    
+                    from_sender = msg.get("From")
+                    
+                    body = ""
+                    if msg.is_multipart():
+                        for part in msg.walk():
+                            if part.get_content_type() == "text/plain":
+                                try:
+                                    body = part.get_payload(decode=True).decode(errors="ignore")
+                                    break
+                                except:
+                                    pass
+                    else:
+                        try:
+                            body = msg.get_payload(decode=True).decode(errors="ignore")
+                        except:
+                            pass
+                    clean_body = body.strip().replace('\n', ' ')[:300]
+                    email_summaries.append(f"FROM: {from_sender}\nSUBJECT: {subject}\nPREVIEW: {clean_body}...\n")
+        
+        mail.logout()
+        return "Recent Emails:\n\n" + "\n---\n".join(email_summaries)
+
+    except Exception as e:
+        return f"Error: Could not read emails. Detailed error: {str(e)}"
+    
+class SendEmailSchema(BaseModel):
+    to_email: str = Field(description="The exact email address of the recipient")
+    subject: str = Field(description="The subject line of the email")
+    body: str = Field(description="The main text content of the email")
+
+@tool(args_schema=SendEmailSchema)
+def send_email(to_email: str, subject: str, body: str) -> str:
+    """Tool to send an email from the user's Gmail account to a specific recipient."""
+    email_user = os.getenv("EMAIL_ADDRESS")
+    email_pass = os.getenv("EMAIL_PASSWORD")
+
+    if not email_user or not email_pass:
+        return "Error: EMAIL_ADDRESS or EMAIL_PASSWORD not found in .env file."
+
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = email_user
+        msg['To'] = to_email
+        msg['Subject'] = subject
+        msg.attach(MIMEText(body, 'plain', 'utf-8'))
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls()
+        server.login(email_user, email_pass)
+        server.send_message(msg)
+        server.quit()
+        
+        return f"Success: Email was successfully sent to {to_email}."
+    except Exception as e:
+        return f"Error: Could not send the email. Detailed error: {str(e)}"
+SCOPES = ['https://www.googleapis.com/auth/calendar']
+
+def get_calendar_service():
+    """Fonction utilitaire pour gérer l'authentification OAuth2"""
+    creds = None
+    if os.path.exists('token.json'):
+        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        else:
+            flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
+            creds = flow.run_local_server(port=0)
+        with open('token.json', 'w') as token:
+            token.write(creds.to_json())
+    return build('calendar', 'v3', credentials=creds)
+
+class ReadCalendarSchema(BaseModel):
+    max_results: int = Field(default=5, description="Number of upcoming events to retrieve")
+
+@tool(args_schema=ReadCalendarSchema)
+def read_upcoming_events(max_results: int = 5) -> str:
+    """Tool to read the user's upcoming events from Google Calendar."""
+    try:
+        service = get_calendar_service()
+        now = datetime.utcnow().isoformat() + 'Z'
+        events_result = service.events().list(calendarId='primary', timeMin=now,
+                                              maxResults=max_results, singleEvents=True,
+                                              orderBy='startTime').execute()
+        events = events_result.get('items', [])
+        if not events:
+            return "No upcoming events found in the calendar."
+        
+        res = "Upcoming Events:\n"
+        for event in events:
+            start = event['start'].get('dateTime', event['start'].get('date'))
+            res += f"- {start}: {event['summary']}\n"
+        return res
+    except Exception as e:
+        return f"Error reading calendar: {str(e)}"
+
+class CreateEventSchema(BaseModel):
+    summary: str = Field(description="Title of the event")
+    start_time: str = Field(description="Start time in ISO format (e.g., 2026-05-10T09:00:00+01:00)")
+    end_time: str = Field(description="End time in ISO format (e.g., 2026-05-10T10:00:00+01:00)")
+    description: str = Field(default="", description="Optional description of the event")
+
+@tool(args_schema=CreateEventSchema)
+def create_calendar_event(summary: str, start_time: str, end_time: str, description: str = "") -> str:
+    """Tool to create a new event in the user's Google Calendar."""
+    try:
+        service = get_calendar_service()
+        event = {
+          'summary': summary,
+          'description': description,
+          'start': {'dateTime': start_time},
+          'end': {'dateTime': end_time},
+        }
+        event = service.events().insert(calendarId='primary', body=event).execute()
+        return f"Success: Event created! Link: {event.get('htmlLink')}"
+    except Exception as e:
+        return f"Error creating event: {str(e)}"
+    
+my_tools = [internet_search, write_local_file, read_local_document, get_current_time, scrape_web_page, read_recent_emails, send_email, read_upcoming_events, create_calendar_event]

@@ -46,19 +46,31 @@
         scrollToBottom();
 
         try {
+            let isApprov = false;
+            let textePropre = messageText.trim().toLowerCase();
+
+            const motsApprobation = ["yes", "oui", "ok", "go", "vas-y", "send", "approuvé", "approved", "accept"];
+
+            let contientOui = motsApprobation.some(mot => textePropre.includes(mot));
+            let contientNon = textePropre.includes("no") || textePropre.includes("non");
+
+            if (contientOui && !contientNon) {
+                isApprov = true;
+            }
             const response = await fetch("http://127.0.0.1:8000/chat", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ 
+                body: JSON.stringify({  
                     message: messageText,
-                    session_id: "agent2" 
+                    session_id: "agent5",
+                    is_approval: isApprov
                 })
             });
 
             const data = await response.json();
 
             document.getElementById("loading").style.display = "none";
-            addMessage(data.reponse, "bot");
+            addMessage(data.response, "bot");
 
         } catch (error) {
             document.getElementById("loading").style.display = "none";

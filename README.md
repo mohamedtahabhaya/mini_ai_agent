@@ -15,6 +15,10 @@
 | `read_local_document` | Lecture de fichiers texte ou PDF locaux | Extraction de contenu de documents fournis par l’utilisateur (ex. PDF de confirmation) |
 | `get_current_time` | Obtention de la date et de l’heure exactes | Gestion des horodatages, réponses dépendant du temps, planification |
 | `scrape_web_page` | Scraping d’une page web à partir d’une URL | Extraction de texte brut depuis des pages web spécifiques lorsque l’utilisateur fournit un lien |
+| `send_email` | Envoi d'emails via le serveur SMTP de Google | Automatisation de la communication avec un sas de validation humain |
+| `read_recent_emails` | Lecture des derniers emails de la boîte de réception via IMAP | Analyse et résumé des messages entrants |
+| `read_upcoming_events` | Lecture de l'agenda via l'API Google Calendar | Consultation de l'emploi du temps en temps réel (Auth OAuth 2.0) |
+| `Calendar` | Ajout d'événements dans le Google Calendar | Planification de réunions ou de rappels avec validation humaine |
 
 ## Principes de conception
 
@@ -28,6 +32,7 @@
 1. **Docker** (optionnel) – conteneuriser FastAPI, MongoDB et les dépendances Python.
 2. **CI/CD** – pipelines automatisés pour les tests, le linting et le déploiement sur un environnement cloud.
 3. **Configuration** – variables d’environnement pour les clés API (Groq, Tavily, etc.) et les paramètres de connexion MongoDB.
+- Authentification Google : Nécessite les variables `EMAIL_ADDRESS` / `EMAIL_PASSWORD` (mot de passe d'application) dans le `.env` pour les emails, et un fichier `credentials.json` (OAuth 2.0) pour l'API Google Calendar.
 
 ---
 

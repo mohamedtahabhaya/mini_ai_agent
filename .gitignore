@@ -24,3 +24,6 @@ data/
 
 # Fichiers systèmes Mac
 .DS_Store
+
+credentials.json
+token.json

@@ -23,19 +23,40 @@ system_message = SystemMessage(
                 - If asked to read a local document (.txt or .pdf), use the read_local_document tool. Always try to ask the user for the ABSOLUTE PATH of the file if they only give you a file name.
                 - You already have perfect memory of our conversation. NEVER use file tools to read, write, or retrieve conversation history unless I explicitly ask you to 'export' or 'save' the conversation to a file.
                 - If you need to know today's date or time, use the get_current_time tool.
-                - If the user provides a specific URL to read, use the scrape_web_page tool.""")
+                - If the user provides a specific URL to read, use the scrape_web_page tool.
+                - If the user asks to check their inbox or read emails, use the read_recent_emails tool.
+                - If the user asks to send an email, use the send_email tool. Draft the content professionally.
+                - If the user asks to schedule an event, ALWAYS use the get_current_time tool first to know today's date, then use create_calendar_event to schedule it.""")
 
 def chatbot_node(state: AgentState):
     messages_for_llm = [system_message] + state["messages"]
     response = llm_with_tools.invoke(messages_for_llm)
     return {"messages": [response]}
 
+def ask_human_node(state: AgentState):
+    pass
+
+def route_tools(state: AgentState):
+    last_message = state["messages"][-1]
+    
+    if not hasattr(last_message, "tool_calls") or not last_message.tool_calls:
+        return END
+    
+    outils_critiques = ["write_local_file", "send_email", "create_calendar_event"]
+    
+    for tool_call in last_message.tool_calls:
+        if tool_call["name"] in outils_critiques:
+            return "ask_human"
+            
+    return "tools"
+
 tool_node = ToolNode(tools=my_tools)
 
 builder = StateGraph(AgentState)
 builder.add_node("chatbot", chatbot_node)
 builder.add_node("tools", tool_node)
-
+builder.add_node("ask_human", ask_human_node)
 builder.add_edge(START, "chatbot")
-builder.add_conditional_edges("chatbot", tools_condition)
+builder.add_conditional_edges("chatbot", route_tools)
+builder.add_edge("ask_human", "tools")
 builder.add_edge("tools", "chatbot")
