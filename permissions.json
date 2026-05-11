@@ -1,0 +1,25 @@
+{
+    "auto_approved": [
+        "pwd",
+        "whoami",
+        "date",
+        "ls",
+        "echo",
+        "python",
+        "pip",
+        "uv",
+        "systemctl",
+        "docker",
+        "cat",
+        "docker info"
+    ],
+    "forbidden_prefixes": [
+        "rm",
+        "sudo",
+        "mv",
+        "chmod",
+        "chown",
+        "mkfs",
+        "format"
+    ]
+}

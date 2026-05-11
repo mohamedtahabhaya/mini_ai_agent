@@ -5,6 +5,9 @@ import imaplib
 import smtplib
 import email
 import os.path
+import subprocess
+import json
+import shlex
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -307,4 +310,67 @@ def search_local_file(filename: str, start_dir: str = "~") -> str:
     except Exception as e:
         return f"Error searching for file '{filename}': {str(e)}"
     
-my_tools = [internet_search, write_local_file, read_local_document, get_current_time, scrape_web_page, read_recent_emails, send_email, read_upcoming_events, create_calendar_event, list_directory_contents, search_local_file]
+class ExecSchema(BaseModel):
+    command: str = Field(description="The exact terminal shell command to execute")
+
+@tool(args_schema=ExecSchema)
+def execute_shell_command(command: str) -> str:
+    """
+    Tool to execute a terminal/shell command on the local machine.
+    Use this to run scripts, check the system environment, or install packages.
+    """
+    try:
+        with open("permissions.json", "r", encoding="utf-8") as f:
+            permissions = json.load(f)
+
+        parsed_args = shlex.split(command)
+        if not parsed_args:
+            return "Error: Empty command."
+            
+        base_cmd = parsed_args[0]
+        if base_cmd in permissions.get("forbidden_prefixes", []):
+            return f"SECURITY ERROR: The command '{base_cmd}' is blacklisted and strictly forbidden. Do not try again."
+
+        if base_cmd in permissions.get("auto_approved", []):
+            result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=15)
+            if result.returncode == 0:
+                return f"Success:\n{result.stdout}"
+            else:
+                return f"Command failed (Exit code {result.returncode}):\n{result.stderr}"
+            
+        return (f"ACTION BLOCKED: The command '{base_cmd}' is not in the auto-approved list in 'permissions.json'. "
+                "Ask the user if they authorize this command. If they do, ask them to manually add it to 'permissions.json' so you can run it.")
+
+    except FileNotFoundError:
+        return "Error: 'permissions.json' file not found. System locked."
+    except Exception as e:
+        return f"Execution error: {str(e)}"
+    
+class AddWhitelistSchema(BaseModel):
+    new_command: str = Field(description="The exact command prefix to add to the auto_approved list (e.g., 'docker' or 'systemctl')")
+
+@tool(args_schema=AddWhitelistSchema)
+def add_to_whitelist(new_command: str) -> str:
+    """
+    Tool to safely add a new command to the 'auto_approved' list in the permissions.json file.
+    Use this tool ONLY when the user explicitly gives you permission to whitelist a new command.
+    """
+    try:
+        with open("permissions.json", "r", encoding="utf-8") as f:
+            permissions = json.load(f)
+
+        if new_command in permissions.get("forbidden_prefixes", []):
+             return f"Error: Cannot whitelist '{new_command}' because it is in the forbidden list."
+             
+        if new_command not in permissions.get("auto_approved", []):
+            permissions.setdefault("auto_approved", []).append(new_command)
+            with open("permissions.json", "w", encoding="utf-8") as f:
+                json.dump(permissions, f, indent=4)
+            return f"Success: '{new_command}' has been added to the whitelist. You can now execute it."
+        else:
+            return f"Info: '{new_command}' is already in the whitelist."
+            
+    except Exception as e:
+        return f"Error updating permissions.json: {str(e)}"
+    
+my_tools = [internet_search, write_local_file, read_local_document, get_current_time, scrape_web_page, read_recent_emails, send_email, read_upcoming_events, create_calendar_event, list_directory_contents, search_local_file, execute_shell_command, add_to_whitelist]

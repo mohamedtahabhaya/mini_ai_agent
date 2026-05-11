@@ -33,6 +33,8 @@ L'agent dispose d'un arsenal d'outils lui permettant d'agir sur son environnemen
 
 | Nom de l'outil | Fonction | Cas d'usage |
 |---|---|---|
+| `execute_shell_command` | Exécution Terminal locale | Lancement de scripts, installation de paquets via `uv` (restreint par la liste blanche). |
+| `add_to_whitelist` | Gestion des permissions | Ajout dynamique et sécurisé de commandes autorisées dans `permissions.json` (protégé par HITL). |
 | `list_directory_contents` | Navigation locale (`ls`) | Vérification instantanée des fichiers présents dans le répertoire courant de l'agent. |
 | `search_local_file` | Recherche globale (`find`) | Recherche récursive d'un fichier spécifique sur le système pour récupérer son chemin absolu. |
 | `read_local_document` | Lecture de fichiers locaux (.txt, .pdf) | Analyse et extraction de contenu de documents fournis par l’utilisateur. |
