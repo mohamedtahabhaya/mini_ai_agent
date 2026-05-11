@@ -29,7 +29,8 @@
         <div class="loading" id="loading">Thinking...</div>
     </div>
     <div class="chat-input-area">
-        <input type="text" id="user-input" placeholder="Write your message..." onkeypress="handleKeyPress(event)">
+        <button id="mic-btn" onclick="startDictation()" style="background: #28a745; margin-right: 10px; padding: 0 15px; font-size: 1.2em;">🎤</button>
+        <input type="text" id="user-input" placeholder="Write your message or speak..." onkeypress="handleKeyPress(event)">
         <button onclick="sendMessage()">Send</button>
     </div>
 </div>
@@ -73,7 +74,7 @@
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({  
                     message: messageText,
-                    session_id: "agent8",
+                    session_id: "agent9",
                     is_approval: isApprov
                 })
             });
@@ -81,13 +82,19 @@
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             let buffer = "";
-            let rawMarkdown = ""; 
+            let rawMarkdown = "";
+            let sentenceBuffer = "";
             
             aiContent.innerHTML = "";
 
             while (true) {
                 const { done, value } = await reader.read();
-                if (done) break;
+                if (done) {
+                    if (sentenceBuffer.trim().length > 0) {
+                        speakText(sentenceBuffer);
+                    }
+                    break;
+                }
 
                 buffer += decoder.decode(value, { stream: true });
                 let parts = buffer.split("\n\n");
@@ -101,10 +108,17 @@
                             
                             if (jsonData.type === "token" || jsonData.type === "approval") {
                                 rawMarkdown += jsonData.content;
+                                sentenceBuffer += jsonData.content;
                                 if (typeof marked !== 'undefined') {
                                     aiContent.innerHTML = marked.parse(rawMarkdown);
                                 } else {
                                     aiContent.innerHTML = rawMarkdown;
+                                }
+                                if (/[.?!:]/.test(jsonData.content) || jsonData.content.includes('\n')) {
+                                    if (sentenceBuffer.trim().length > 0) {
+                                        speakText(sentenceBuffer);
+                                        sentenceBuffer = "";
+                                    }
                                 }
                             } else if (jsonData.type === "error") {
                                 aiContent.innerHTML += `<br><span style='color:red;'>Server Error: ${jsonData.content}</span>`;
@@ -141,6 +155,66 @@
 
     function handleKeyPress(event) {
         if (event.key === "Enter") { sendMessage(); }
+    }
+
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const micBtn = document.getElementById('mic-btn');
+
+    if (SpeechRecognition) {
+        const recognition = new SpeechRecognition();
+        
+        recognition.lang = 'en-US'; 
+        recognition.interimResults = false;
+        recognition.maxAlternatives = 1;
+
+        function startDictation() {
+            document.getElementById("user-input").value = "";
+            recognition.start();
+            micBtn.textContent = "🔴"; 
+            micBtn.style.background = "#dc3545"; 
+            document.getElementById("user-input").placeholder = "Listening...";
+        }
+
+        recognition.onresult = function(event) {
+            const transcript = event.results[0][0].transcript;
+            console.log("🗣️ Voix captée :", transcript);
+            
+            document.getElementById("user-input").value = transcript;
+        };
+
+        recognition.onerror = function(event) {
+            console.error("❌ Erreur Micro : ", event.error);
+        };
+
+        recognition.onend = function() {
+            console.log("🛑 Le micro s'est éteint.");
+            micBtn.textContent = "🎤";
+            micBtn.style.background = "#28a745";
+            document.getElementById("user-input").placeholder = "Write your message or speak...";
+            if (document.getElementById("user-input").value.trim() !== "") {
+                sendMessage(); 
+            }
+        };
+
+    } else {
+        console.warn("Speech Recognition API is not supported in this browser.");
+        micBtn.style.display = "none";
+    }
+
+    function speakText(text) {
+        if ('speechSynthesis' in window) {
+            const cleanText = text.replace(/[*#_`~]/g, '');
+            
+            const utterance = new SpeechSynthesisUtterance(cleanText);
+            utterance.lang = 'en-US';
+            utterance.rate = 1.0;
+            utterance.pitch = 1.0;
+            
+            window.speechSynthesis.speak(utterance);
+        } else {
+            console.warn("La synthèse vocale n'est pas supportée par ce navigateur.");
+        }
     }
 </script>
 

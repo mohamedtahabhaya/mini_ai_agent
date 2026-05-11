@@ -61,7 +61,7 @@ L'agent dispose d'un arsenal d'outils lui permettant d'agir sur son environnemen
 
 ### Variables d'environnement (`.env`)
 À la racine du projet, créez un fichier `.env` contenant les clés suivantes :
-```env
+
 # API Keys
 GROQ_API_KEY=votre_cle_groq
 TAVILY_API_KEY=votre_cle_tavily
@@ -72,3 +72,21 @@ URI_MONGODB=mongodb://localhost:27017
 # SMTP / IMAP (Envoi et lecture d'emails)
 EMAIL_ADDRESS=votre_email@gmail.com
 EMAIL_PASSWORD=votre_mot_de_passe_d_application
+
+### Authentification Google Calendar (OAuth 2.0)
+
+Pour utiliser les outils d'agenda, vous devez configurer un écran de consentement OAuth sur la [Google Cloud Console](https://console.cloud.google.com/) et placer le fichier **`credentials.json`** téléchargé à la racine du projet. Un fichier `token.json` sera généré automatiquement lors de la première connexion. **Attention :** Ces deux fichiers doivent figurer dans votre `.gitignore`.
+
+### Lancement Local
+
+```bash
+# 1. Démarrer la base de données MongoDB (si utilisation de Docker)
+docker-compose up -d
+
+# 2. Installer les dépendances
+pip install -r requirements.txt
+
+# 3. Lancer le serveur backend
+uvicorn api:app --reload
+
+"Ce projet suit des normes strictes de développement. Toute modification du graphe d'état doit être accompagnée de tests pour s'assurer que les barrières de sécurité et le compresseur de mémoire restent fonctionnels."
