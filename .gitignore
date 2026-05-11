@@ -5,10 +5,10 @@ build/
 dist/
 wheels/
 *.egg-info
-.vscode
+
 # Virtual environments
 .venv/
-env/
+env/ss
 
 # Clés secrètes et configuration
 .env

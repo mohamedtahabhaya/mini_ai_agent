@@ -33,8 +33,10 @@ L'agent dispose d'un arsenal d'outils lui permettant d'agir sur son environnemen
 
 | Nom de l'outil | Fonction | Cas d'usage |
 |---|---|---|
-| `internet_search` | Recherche web via l’API Tavily | Récupération de données factuelles, actualités en temps réel. |
+| `list_directory_contents` | Navigation locale (`ls`) | Vérification instantanée des fichiers présents dans le répertoire courant de l'agent. |
+| `search_local_file` | Recherche globale (`find`) | Recherche récursive d'un fichier spécifique sur le système pour récupérer son chemin absolu. |
 | `read_local_document` | Lecture de fichiers locaux (.txt, .pdf) | Analyse et extraction de contenu de documents fournis par l’utilisateur. |
+| `internet_search` | Recherche web via Tavily | Récupération de données factuelles, actualités en temps réel. |
 | `get_current_time` | Horodatage système | Planification, repères temporels pour la création d'événements. |
 | `scrape_web_page` | Scraping d’URL spécifique | Extraction du contenu brut d'une page web donnée. |
 | `read_recent_emails` | Lecture IMAP de la boîte de réception | Analyse, recherche et résumé des derniers messages reçus. |
@@ -79,7 +81,6 @@ Pour utiliser les outils d'agenda, vous devez configurer un écran de consenteme
 
 ### Lancement Local
 
-```bash
 # 1. Démarrer la base de données MongoDB (si utilisation de Docker)
 docker-compose up -d
 
@@ -89,4 +90,4 @@ pip install -r requirements.txt
 # 3. Lancer le serveur backend
 uvicorn api:app --reload
 
-"Ce projet suit des normes strictes de développement. Toute modification du graphe d'état doit être accompagnée de tests pour s'assurer que les barrières de sécurité et le compresseur de mémoire restent fonctionnels."
+Ce projet suit des normes strictes de développement. Toute modification du graphe d'état doit être accompagnée de tests pour s'assurer que les barrières de sécurité et le compresseur de mémoire restent fonctionnels.

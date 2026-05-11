@@ -27,7 +27,9 @@ system_message = SystemMessage(
                 - If the user asks to check their inbox or read emails, use the read_recent_emails tool.
                 - If the user asks to send an email, use the send_email tool. Draft the content professionally.
                 - If the user asks to schedule an event, ALWAYS use the get_current_time tool first to know today's date, then use create_calendar_event to schedule it.
-                - NEVER hallucinate, invent, or use placeholder data for calendar events, emails, or files. ALWAYS use your tools to fetch the real data first.""")
+                - NEVER hallucinate, invent, or use placeholder data for calendar events, emails, or files. ALWAYS use your tools to fetch the real data first.
+                - If the user asks to read a file but doesn't provide the full path, use the 'list_directory_contents' tool to see what is in the current directory, find the file, and then read it.
+                - If the user asks you to read, summarize, or edit a file but only provides the file name (e.g., "corrected.pdf"), DO NOT ask the user for the absolute path. You must IMMEDIATELY and autonomously use the 'search_local_file' tool to find the file's location on the computer. Once you find the path, proceed to use 'read_local_document' automatically.""")
 
 def summarize_conversation(state: AgentState):
     """Nœud qui compresse les anciens messages en un résumé."""

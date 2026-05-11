@@ -49,8 +49,8 @@ class ReadDocSchema(BaseModel):
 
 @tool(args_schema=ReadDocSchema)
 def read_local_document(file_path: str) -> str:
-    """Tool to read the exact text content of a local .txt or .pdf file from anywhere on the computer."""
-    expanded_path = os.path.expanduser(file_path)
+    """Tool to read the exact text content of a local .txt or .pdf file from anywhere on the computer. You can pass just the file name (e.g., 'README.md') if it is in the current directory."""
+    expanded_path = os.path.abspath(os.path.expanduser(file_path))
     
     if not os.path.exists(expanded_path):
         return f"Error: The file '{expanded_path}' does not exist on the local computer."
@@ -253,4 +253,58 @@ def create_calendar_event(summary: str, start_time: str, end_time: str, descript
     except Exception as e:
         return f"Error creating event: {str(e)}"
     
-my_tools = [internet_search, write_local_file, read_local_document, get_current_time, scrape_web_page, read_recent_emails, send_email, read_upcoming_events, create_calendar_event]
+@tool
+def list_directory_contents(directory_path: str = ".") -> str:
+    """
+    Lists the files and folders in the specified directory.
+    If no directory is provided, it defaults to the current working directory (like the 'ls' command).
+    Use this to find the exact names of files before trying to read them.
+    """
+    try:
+        abs_path = os.path.abspath(directory_path)
+        items = os.listdir(abs_path)
+        
+        if not items:
+            return f"The directory '{abs_path}' is empty."
+        
+        result = f"Contents of {abs_path}:\n"
+        for item in items:
+            result += f"- {item}\n"
+        return result
+        
+    except Exception as e:
+        return f"Error reading directory '{directory_path}': {str(e)}"
+    
+class FindFileSchema(BaseModel):
+    filename: str = Field(description="The exact name of the file to search for (e.g., 'facture.pdf')")
+    start_dir: str = Field(default="~", description="The directory to start searching from. Defaults to the user's home directory.")
+
+@tool(args_schema=FindFileSchema)
+def search_local_file(filename: str, start_dir: str = "~") -> str:
+    """
+    Searches the computer for a file by its exact name.
+    Returns the absolute paths of the files found so they can be read later.
+    """
+    expanded_dir = os.path.abspath(os.path.expanduser(start_dir))
+    matches = []
+    
+    try:
+        for root, dirs, files in os.walk(expanded_dir):
+            if filename in files:
+                matches.append(os.path.join(root, filename))
+                if len(matches) >= 3:
+                    break
+                    
+        if not matches:
+            return f"The file '{filename}' was not found in '{expanded_dir}' or its subdirectories."
+            
+        result = f"Found {len(matches)} matching file(s):\n"
+        for match in matches:
+            result += f"- {match}\n"
+            
+        return result + "\nYou can now use the 'read_local_document' tool with one of these absolute paths."
+        
+    except Exception as e:
+        return f"Error searching for file '{filename}': {str(e)}"
+    
+my_tools = [internet_search, write_local_file, read_local_document, get_current_time, scrape_web_page, read_recent_emails, send_email, read_upcoming_events, create_calendar_event, list_directory_contents, search_local_file]
