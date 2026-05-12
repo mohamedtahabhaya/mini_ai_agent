@@ -8,6 +8,8 @@ import os.path
 import subprocess
 import json
 import shlex
+import webbrowser
+import sys
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -22,6 +24,7 @@ from langchain_core.tools import tool
 from langchain_tavily import TavilySearch
 from dotenv import load_dotenv
 load_dotenv()
+from typing import Union
 
 class SearchSchema(BaseModel):
     query: str = Field(description="The exact search query to type on the Internet")
@@ -278,37 +281,49 @@ def list_directory_contents(directory_path: str = ".") -> str:
     except Exception as e:
         return f"Error reading directory '{directory_path}': {str(e)}"
     
-class FindFileSchema(BaseModel):
-    filename: str = Field(description="The exact name of the file to search for (e.g., 'facture.pdf')")
-    start_dir: str = Field(default="~", description="The directory to start searching from. Defaults to the user's home directory.")
+class SearchFileSchema(BaseModel):
+    filename: str = Field(description="The exact name of the file to search for (e.g., 'README.md' or 'corrected.pdf')")
 
-@tool(args_schema=FindFileSchema)
-def search_local_file(filename: str, start_dir: str = "~") -> str:
+@tool(args_schema=SearchFileSchema)
+def search_local_file(filename: str) -> str:
     """
-    Searches the computer for a file by its exact name.
-    Returns the absolute paths of the files found so they can be read later.
+    Tool to globally search for a file on the computer and return its absolute path.
+    Used when the file is not in the current working directory.
     """
-    expanded_dir = os.path.abspath(os.path.expanduser(start_dir))
-    matches = []
+
+    if sys.platform == "darwin":
+        try:
+            result = subprocess.run(["mdfind", "-name", filename], capture_output=True, text=True, timeout=5)
+            paths = result.stdout.strip().split("\n")
+            
+            if paths and paths[0]:
+                for path in paths:
+                    if "Library" not in path and path.endswith(filename):
+                        return f"Success: File found at {path}"
+                return f"Success: File found at {paths[0]}"
+        except Exception:
+            pass
+
+    search_dirs = [
+        os.path.expanduser("~/Documents"), 
+        os.path.expanduser("~/Downloads"), 
+        os.path.expanduser("~/Desktop"),
+        os.getcwd()
+    ]
     
-    try:
-        for root, dirs, files in os.walk(expanded_dir):
+    exclude_dirs = {'node_modules', '.venv', '.git', 'Library', 'AppData', '__pycache__', '.idea', '.vscode'}
+
+    for search_dir in search_dirs:
+        if not os.path.exists(search_dir):
+            continue
+            
+        for root, dirs, files in os.walk(search_dir):
+            dirs[:] = [d for d in dirs if d not in exclude_dirs]
+            
             if filename in files:
-                matches.append(os.path.join(root, filename))
-                if len(matches) >= 3:
-                    break
-                    
-        if not matches:
-            return f"The file '{filename}' was not found in '{expanded_dir}' or its subdirectories."
-            
-        result = f"Found {len(matches)} matching file(s):\n"
-        for match in matches:
-            result += f"- {match}\n"
-            
-        return result + "\nYou can now use the 'read_local_document' tool with one of these absolute paths."
-        
-    except Exception as e:
-        return f"Error searching for file '{filename}': {str(e)}"
+                return f"Success: File found at {os.path.join(root, filename)}"
+                
+    return f"Error: Could not find '{filename}' on the computer."
     
 class ExecSchema(BaseModel):
     command: str = Field(description="The exact terminal shell command to execute")
@@ -373,4 +388,35 @@ def add_to_whitelist(new_command: str) -> str:
     except Exception as e:
         return f"Error updating permissions.json: {str(e)}"
     
-my_tools = [internet_search, write_local_file, read_local_document, get_current_time, scrape_web_page, read_recent_emails, send_email, read_upcoming_events, create_calendar_event, list_directory_contents, search_local_file, execute_shell_command, add_to_whitelist]
+class OpenItemSchema(BaseModel):
+    target: str = Field(description="The exact URL of the website or the absolute path of the local file to open.")
+    is_url: Union[bool, str] = Field(description="MUST be a strict boolean (true/false). Set to true if the target is a web link, false if it is a local file.")
+
+@tool(args_schema=OpenItemSchema)
+def open_item(target: str, is_url: bool) -> str:
+    """
+    Tool to open a website in the default browser or open a local file in its default desktop application.
+    Use this when the user explicitly asks to "open" or "play" something on their screen.
+    """
+    if isinstance(is_url, str):
+        is_url = is_url.lower() in ['true', 'yes', '1', 'y', 't']
+    try:
+        if is_url:
+            webbrowser.open(target)
+            return f"Success: Opened web page {target} in the browser."
+        else:
+            if not os.path.exists(target):
+                return f"Error: The file {target} does not exist. You may need to search for it first."
+            if sys.platform == "darwin":
+                subprocess.run(["open", target])
+            elif sys.platform == "win32":
+                os.startfile(target)
+            else:
+                subprocess.run(["xdg-open", target])
+                
+            return f"Success: Opened local file {target} on the screen."
+            
+    except Exception as e:
+        return f"Error opening item: {str(e)}"
+    
+my_tools = [internet_search, write_local_file, read_local_document, get_current_time, scrape_web_page, read_recent_emails, send_email, read_upcoming_events, create_calendar_event, list_directory_contents, search_local_file, execute_shell_command, add_to_whitelist, open_item]

@@ -5,7 +5,7 @@
 ![LangGraph](https://img.shields.io/badge/LangGraph-State_Graph-orange.svg)
 ![MongoDB](https://img.shields.io/badge/MongoDB-NoSQL-47A248.svg)
 
-Un assistant virtuel autonome, modulaire et hautement réactif. Construit sur une architecture **ReAct** (Reason + Act), cet agent est capable d'interagir avec le monde extérieur (Web, Emails, Calendrier, Système de fichiers) tout en conservant une mémoire optimisée et un sas de validation humain pour les actions critiques.
+Un assistant virtuel autonome, modulaire et hautement réactif. Construit sur une architecture **ReAct** (Reason + Act), cet agent est capable de voir, d'entendre, et d'interagir avec le monde extérieur (Web, Emails, Calendrier, Système de fichiers) tout en conservant une mémoire optimisée et un sas de validation humain pour les actions critiques.
 
 ---
 
@@ -24,6 +24,7 @@ Un assistant virtuel autonome, modulaire et hautement réactif. Construit sur un
 * **Gestion Autonome de la Mémoire** : Intégration d'un nœud d'auto-compression. Pour prévenir la surcharge du contexte (*Token Limit*) et l'engorgement de la base de données, l'agent résume silencieusement les anciennes conversations en arrière-plan et purge les anciens nœuds MongoDB, tout en conservant le contexte global.
 * **Sécurité Anti-Prompt Leaking & Hallucinations** : Le *Prompt Engineering* et les consignes système sont strictement cloisonnés. Des balises de sécurité invisibles empêchent le LLM de divulguer ses instructions internes ou d'inventer des données factuelles (*placeholder data*) sans faire appel à ses outils.
 * **Human-in-the-Loop (HITL)** : Sas de sécurité bloquant l'exécution d'outils critiques (envoi d'emails, modifications d'agenda) tant qu'une validation humaine explicite n'a pas été interceptée.
+* **Capacités Multimodales (Vision)** : L'agent dispose "d'yeux". L'interface web permet l'upload d'images (encodées en Base64), permettant au modèle d'analyser l'interface de l'utilisateur, de décrire des graphiques ou de contextualiser des problèmes visuels.`Il faut utiliser le model="meta-llama/llama-4-scout-17b-16e-instruct"`
 
 ---
 
@@ -54,6 +55,7 @@ L'agent dispose d'un arsenal d'outils lui permettant d'agir sur son environnemen
 2. **Scalabilité** : L'utilisation de l'asynchrone (`async`/`await`) sur l'ensemble de la pile et la flexibilité de MongoDB permettent une mise à l'échelle aisée.
 3. **Sécurité First** : Gestion stricte des intentions (ex: pas d'appel API coûteux pour de simples salutations), protection des secrets via `.env`, et obligation de validation humaine pour les actions impactantes.
 4. **Extensibilité** : L'ajout d'une nouvelle capacité à l'agent se fait simplement par la création d'une fonction Python documentée et son injection dans la liste des nœuds LangGraph.
+5. **Robustesse du Tool Calling** : Typage dynamique (`Union[bool, str]`) pour anticiper et corriger silencieusement les erreurs de syntaxe générées par l'IA lors de l'utilisation d'outils.
 
 ---
 
