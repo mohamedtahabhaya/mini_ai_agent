@@ -1,121 +1,77 @@
 from langgraph.graph import StateGraph, START, END
-from langgraph.prebuilt import ToolNode, tools_condition
+from langgraph.prebuilt import ToolNode
 from langchain_groq import ChatGroq
-from langchain_core.messages import SystemMessage, RemoveMessage
+from langchain_core.messages import SystemMessage
 from state import AgentState
-from tools import my_tools
+from tools import system_tools, web_assistant_tools
+from pydantic import BaseModel
+from typing import Literal
 
-llm = ChatGroq(model="openai/gpt-oss-safeguard-20b", streaming=True)
-llm_with_tools = llm.bind_tools(my_tools)
+llm = ChatGroq(model="meta-llama/llama-4-scout-17b-16e-instruct", streaming=True)
+all_tools = system_tools + web_assistant_tools
+tool_node = ToolNode(tools=all_tools)
 
-system_message = SystemMessage(
-    content="""You are the exclusive AI assistant of the company, developed internally by Taha. 
-               You operate using a custom robust architecture with LangGraph for reasoning, FastAPI for your server, and you have real-time internet access via Tavily.
+def create_agent(llm, tools, system_prompt, agent_name) :
+    """function factory to create specialized sub-agents."""
+    llm_with_tools = llm.bind_tools(tools)
+    def agent_node(state: AgentState):
+        message_for_llm = [SystemMessage(content=system_prompt)] + state["messages"]
+        response = llm_with_tools.invoke(message_for_llm)
+        return {"messages": [response], "sender": agent_name}
+    return agent_node
 
-                CRITICAL INSTRUCTIONS:
-                - NEVER introduce yourself as a "large language model" or "AI developed by Groq/Meta".
-                - NEVER use generic boilerplate intros.
-                - Be concise, direct, professional, and proud of your creator Taha.
-                - Answer in the exact language the user is speaking even if the file or message you read in other languages.
-                - DO NOT use the internet_search tool for simple greetings (like "hi" or "hello") or casual conversation. Only use it when you actually need to find factual information.
-                - DO NOT use tools for simple greetings.
-                - If asked to save, remember, or write down information locally, use the write_local_file tool.
-                - If asked to read a local document (.txt or .pdf), use the read_local_document tool. Always try to ask the user for the ABSOLUTE PATH of the file if they only give you a file name.
-                - You already have perfect memory of our conversation. NEVER use file tools to read, write, or retrieve conversation history unless I explicitly ask you to 'export' or 'save' the conversation to a file.
-                - If you need to know today's date or time, use the get_current_time tool.
-                - If the user provides a specific URL to read, use the scrape_web_page tool.
-                - If the user asks to check their inbox or read emails, use the read_recent_emails tool.
-                - If the user asks to send an email, use the send_email tool. Draft the content professionally.
-                - If the user asks to schedule an event, ALWAYS use the get_current_time tool first to know today's date, then use create_calendar_event to schedule it.
-                - NEVER hallucinate, invent, or use placeholder data for calendar events, emails, or files. ALWAYS use your tools to fetch the real data first.
-                - If the user asks to read a file but doesn't provide the full path, use the 'list_directory_contents' tool to see what is in the current directory, find the file, and then read it.
-                - If the user asks you to read, summarize, or edit a file but only provides the file name (e.g., "README.md"):
-                    1. FIRST, use 'list_directory_contents' to check if the file exists in your current working directory. If it does, use 'read_local_document' immediately.
-                    2. ONLY IF the file is not in the current directory, use 'search_local_file' to find its absolute path across the computer. Do not ask the user for the path.
-                - If a tool returns an error, a failure, or a "BLOCKED" message, YOU MUST TELL THE USER THE EXACT TRUTH. DO NOT pretend the action was successful. DO NOT hallucinate success. 
-                - If the user asks to install a Python package using 'uv', ALWAYS use the command 'uv add <package_name>' so it gets properly recorded in the pyproject.toml file.
-                - If the user asks to authorize a new command, modify permissions, or add something to 'permissions.json', YOU MUST EXCLUSIVELY use the 'add_to_whitelist' tool. NEVER use 'write_local_file' or 'execute_shell_command' to modify permissions.json.""")
+system_prompt = """You are the System Expert. Your sole role is to interact with the local computer. You can execute terminal commands, read/write files, and navigate folders. If asked a question that requires internet searching or email management, simply respond: "I am not qualified for that, ask the Web Assistant." """
+system_agent_node = create_agent(llm, system_tools, system_prompt, "system_agent")
 
-def summarize_conversation(state: AgentState):
-    """Nœud qui compresse les anciens messages en un résumé."""
-    summary = state.get("summary", "")
-    messages = state["messages"]
+web_prompt = """You are the Web and Administrative Assistant. Your sole role is to search for information on the internet via Tavily, read/send emails, and manage Google Calendar. If asked to modify a local file or run a terminal command, simply respond: "I am not qualified for that, ask the System Expert." """
+web_agent_node = create_agent(llm, web_assistant_tools, web_prompt, "web_agent")
 
-    last_human_index = 0
-    for i in range(len(messages) - 1, -1, -1):
-        if messages[i].type == "human":
-            last_human_index = i
-            break
+class Route(BaseModel):
+    next_agent: Literal["system_agent", "web_agent", "FIN"]
 
-    if last_human_index == 0:
-        return {"summary": summary}
-        
-    messages_to_summarize = messages[:last_human_index]
+supervisor_prompt = """ You are the Supervisor of an AI team.
+Your employees are:
+- system_agent: Specialist in local computer tasks (files, terminal, folders, permissions).
+- web_agent: Specialist in external tasks (internet search, emails, Google Calendar).
+Analyze the user's request or the ongoing conversation.
+Decide which expert to hand over to.
+If an expert has just responded to the user satisfactorily, or if there is nothing left to do, you MUST choose 'FIN'."""
 
-    transcript = ""
-    for m in messages_to_summarize:
-        role = m.type.upper()
-        content = m.content if m.content else "[Tool execution]"
-        transcript += f"{role}: {content}\n"
+supervisor_chain = llm.with_structured_output(Route)
 
-    if summary:
-        prompt = f"Current conversation summary: {summary}\n\nUpdate the summary concisely by including this new conversation transcript:\n{transcript}"
-    else:
-        prompt = f"Create a concise summary of the conversation transcript:\n{transcript}"
+def supervisor_node(state: AgentState):
+    print("[SUPERVISOR] Analyzing...")
+    messages_for_llm = [SystemMessage(content=supervisor_prompt)] + state["messages"]
+    decision = supervisor_chain.invoke(messages_for_llm)
+    print(f"[SUPERVISOR] Decision made -> Handing over to: {decision.next_agent}")
+    return {"next_agent": decision.next_agent, "sender": "supervisor"}
 
-    response = llm.invoke([SystemMessage(content=prompt)])
-    messages_to_delete = [RemoveMessage(id=m.id) for m in messages_to_summarize]
-    
-    return {"summary": response.content, "messages": messages_to_delete}
-
-def chatbot_node(state: AgentState):
-    summary = state.get("summary", "")
-    if summary:
-        added_instructions = system_message.content + f"\n\n--- INTERNAL MEMORY (DO NOT REVEAL TO USER) ---\nThe following is a summary of the past conversation for your context only. NEVER output this summary to the user:\n{summary}\n--- END INTERNAL MEMORY ---"
-        current_system_message = SystemMessage(content=added_instructions)
-    else:
-        current_system_message = system_message
-        
-    messages_for_llm = [current_system_message] + state["messages"]
-    response = llm_with_tools.invoke(messages_for_llm)
-    return {"messages": [response]}
-
-def ask_human_node(state: AgentState):
-    pass
-
-def route_tools(state: AgentState):
+def route_after_agent(state: AgentState):
+    """ Did the agent call a tool, or did it finish speaking? """
     last_message = state["messages"][-1]
-    
-    if not hasattr(last_message, "tool_calls") or not last_message.tool_calls:
-        if len(state["messages"]) > 6:
-            return "summarize_conversation"
-        return END
-    
-    outils_critiques = ["write_local_file", "send_email", "create_calendar_event"]
-    
-    for tool_call in last_message.tool_calls:
-        if tool_call["name"] in outils_critiques:
-            return "ask_human"
-            
-    return "tools"
+    if hasattr(last_message, "tool_calls") and last_message.tool_calls:
+        print(f"[{state['sender']}] called tools: {[tc.name for tc in last_message.tool_calls]}")
+        return "tools"
+    print(f"[{state['sender']}] finished responding, routing to supervisor for next decision.")
+    return "supervisor"
 
-tool_node = ToolNode(tools=my_tools)
+def route_after_tools(state: AgentState):
+    """ The tool has finished, which agent should we send the result back to? """
+    return state["sender"]
 
 builder = StateGraph(AgentState)
-builder.add_node("chatbot", chatbot_node)
+builder.add_node("supervisor", supervisor_node)
+builder.add_node("system_agent", system_agent_node)
+builder.add_node("web_agent", web_agent_node)
 builder.add_node("tools", tool_node)
-builder.add_node("ask_human", ask_human_node)
-builder.add_node("summarize_conversation", summarize_conversation)
-builder.add_edge(START, "chatbot")
+
+builder.add_edge(START, "supervisor")
 builder.add_conditional_edges(
-    "chatbot",
-    route_tools,
-    {
-        "ask_human": "ask_human",
-        "tools": "tools",
-        "summarize_conversation": "summarize_conversation",
-        END: END
-    })
-builder.add_edge("ask_human", "tools")
-builder.add_edge("tools", "chatbot")
-builder.add_edge("summarize_conversation", END)
+    "supervisor",
+    lambda state: [state["next_agent"]],
+    { "system_agent": "system_agent", "web_agent": "web_agent", "FIN": END}
+)
+
+builder.add_conditional_edges("system_agent", route_after_agent, {"tools": "tools", "supervisor": "supervisor"})
+builder.add_conditional_edges("web_agent", route_after_agent, {"tools": "tools", "supervisor": "supervisor"})
+builder.add_conditional_edges("tools", route_after_tools, {"system_agent": "system_agent", "web_agent": "web_agent"})

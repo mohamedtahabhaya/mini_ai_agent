@@ -9,8 +9,7 @@ load_dotenv()
 from pymongo import MongoClient
 from langgraph.checkpoint.mongodb import MongoDBSaver
 from graph import builder
-
-
+from typing import Optional
 
 app = FastAPI(title="My AI Agent API")
 
@@ -26,19 +25,31 @@ mongodb_uri = os.getenv("URI_MONGODB")
 client = MongoClient(mongodb_uri)
 memory = MongoDBSaver(client)
 
-my_agent = builder.compile(checkpointer=memory, interrupt_before=["ask_human"])
+my_agent = builder.compile(checkpointer=memory)
 
 class ChatRequest(BaseModel):
     message: str
-    session_id: str = "agent_securise_1" 
+    session_id: str = "agent006" 
     is_approval: bool = False
+    image_data: Optional[str] = None
 
 @app.post("/chat")
 async def chat_endpoint(request: ChatRequest):
     config = {"configurable": {"thread_id": request.session_id}}
     
     async def event_generator():
-        input_data = None if request.is_approval else {"messages": [("user", request.message)]}
+        if request.is_approval:
+            input_data = None
+        else:
+            message_content = [{"type": "text", "text": request.message}]
+            
+            if request.image_data:
+                message_content.append({
+                    "type": "image_url",
+                    "image_url": {"url": request.image_data}
+                })
+                
+            input_data = {"messages": [("user", message_content)]}
         
         try:
             async for event in my_agent.astream_events(input_data, config=config, version="v2"):
@@ -55,7 +66,11 @@ async def chat_endpoint(request: ChatRequest):
         etat_courant = my_agent.get_state(config)
         if etat_courant.next and etat_courant.next[0] == "ask_human":
             dernier_message = etat_courant.values["messages"][-1]
-            outils_demandes = [tc["name"] for tc in dernier_message.tool_calls]
+            try:
+                outils_demandes = [tc["name"] for tc in dernier_message.tool_calls]
+            except Exception as e:
+                outils_demandes = []
+                print(f"Error extracting tool calls: {e}")
             noms_outils = ", ".join(outils_demandes)
             
             msg_approbation = f"\n\n⚠️ **Authorization required** : I want to use `[{noms_outils}]`. Type 'yes' to accept."

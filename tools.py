@@ -419,4 +419,14 @@ def open_item(target: str, is_url: bool) -> str:
     except Exception as e:
         return f"Error opening item: {str(e)}"
     
-my_tools = [internet_search, write_local_file, read_local_document, get_current_time, scrape_web_page, read_recent_emails, send_email, read_upcoming_events, create_calendar_event, list_directory_contents, search_local_file, execute_shell_command, add_to_whitelist, open_item]
+system_tools = [
+    write_local_file, read_local_document, list_directory_contents, 
+    search_local_file, execute_shell_command, add_to_whitelist, 
+    open_item
+]
+
+web_assistant_tools = [
+    internet_search, get_current_time, scrape_web_page, 
+    read_recent_emails, send_email, read_upcoming_events, 
+    create_calendar_event
+]
