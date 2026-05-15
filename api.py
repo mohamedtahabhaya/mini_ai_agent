@@ -11,7 +11,7 @@ from langgraph.checkpoint.mongodb import MongoDBSaver
 from graph import builder
 from typing import Optional
 
-app = FastAPI(title="My AI Agent API")
+app = FastAPI(title="My AI Agent") 
 
 app.add_middleware(
     CORSMiddleware,
@@ -21,15 +21,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-mongodb_uri = os.getenv("URI_MONGODB")
-client = MongoClient(mongodb_uri)
-memory = MongoDBSaver(client)
+mongodb_uri = os.getenv("URI_MONGODB") 
+client = MongoClient(mongodb_uri) 
+memory = MongoDBSaver(client) 
 
 my_agent = builder.compile(checkpointer=memory)
 
 class ChatRequest(BaseModel):
     message: str
-    session_id: str = "agent006" 
+    session_id: str = "agent01" 
     is_approval: bool = False
     image_data: Optional[str] = None
 
@@ -54,26 +54,24 @@ async def chat_endpoint(request: ChatRequest):
         try:
             async for event in my_agent.astream_events(input_data, config=config, version="v2"):
                 kind = event["event"]
+                node_name = event["metadata"].get("langgraph_node")
 
-                if kind == "on_chat_model_stream" and event["metadata"].get("langgraph_node") == "chatbot":
-                    chunk = event["data"]["chunk"].content
+                # Handle streaming from agents
+                if kind == "on_chat_model_stream" and node_name in ["system_agent", "web_agent", "general_agent"]:
+                    chunk = event["data"]["chunk"].content 
                     if isinstance(chunk, str) and chunk:
                         yield f"data: {json.dumps({'type': 'token', 'content': chunk})}\n\n"
+                
+                # Handle direct messages from Supervisor (e.g., greetings)
+                elif kind == "on_chain_end" and node_name == "supervisor":
+                    output = event["data"].get("output")
+                    if output and "messages" in output:
+                        for msg in output["messages"]:
+                            # If it's a tuple or Message object, extract content
+                            content = msg[1] if isinstance(msg, tuple) else getattr(msg, 'content', str(msg))
+                            yield f"data: {json.dumps({'type': 'token', 'content': content})}\n\n"
                         
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
-
-        etat_courant = my_agent.get_state(config)
-        if etat_courant.next and etat_courant.next[0] == "ask_human":
-            dernier_message = etat_courant.values["messages"][-1]
-            try:
-                outils_demandes = [tc["name"] for tc in dernier_message.tool_calls]
-            except Exception as e:
-                outils_demandes = []
-                print(f"Error extracting tool calls: {e}")
-            noms_outils = ", ".join(outils_demandes)
-            
-            msg_approbation = f"\n\n⚠️ **Authorization required** : I want to use `[{noms_outils}]`. Type 'yes' to accept."
-            yield f"data: {json.dumps({'type': 'approval', 'content': msg_approbation})}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")

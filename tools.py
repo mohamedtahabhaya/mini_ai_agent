@@ -428,5 +428,5 @@ system_tools = [
 web_assistant_tools = [
     internet_search, get_current_time, scrape_web_page, 
     read_recent_emails, send_email, read_upcoming_events, 
-    create_calendar_event
+    create_calendar_event, open_item
 ]
