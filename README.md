@@ -1,97 +1,54 @@
-# Custom AI Agent – Architecture ReAct Avancée
+# Mini Agent IA - Orchestration Multi-Agents avec LangGraph
 
-![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-00a393.svg)
-![LangGraph](https://img.shields.io/badge/LangGraph-State_Graph-orange.svg)
-![MongoDB](https://img.shields.io/badge/MongoDB-NoSQL-47A248.svg)
+Ce projet est un système d'Intelligence Artificielle **Multi-Agents** modulaire, réactif et autonome. Construit avec **LangGraph** et propulsé par l'API **Groq**, il orchestre une équipe d'agents spécialisés capables d'interagir avec le système local, d'effectuer des recherches sur le web, de gérer des e-mails/calendriers et de maintenir une conversation fluide avec l'utilisateur.
 
-Un assistant virtuel autonome, modulaire et hautement réactif. Construit sur une architecture **ReAct** (Reason + Act), cet agent est capable de voir, d'entendre, et d'interagir avec le monde extérieur (Web, Emails, Calendrier, Système de fichiers) tout en conservant une mémoire optimisée et un sas de validation humain pour les actions critiques.
+## Fonctionnalités Clés
 
----
+* **Orchestration Intelligente (Le Superviseur) :** Un agent routeur qui analyse les requêtes et délègue les tâches au bon expert (Système, Web ou Général), avec un système **Anti-Boucle (Anti-Loop Shield)** robuste codé en Python pour éviter les plantages de l'IA.
+* **🛠️ Séparation des Responsabilités (Experts) :**
+  * **System Agent :** Spécialiste de l'ordinateur local (lecture/écriture de fichiers, exécution de commandes terminal, ouverture de liens/applications).
+  * **Web Agent :** Spécialiste externe (recherches internet, e-mails, agenda).
+  * **General Agent :** "Concierge" de l'application chargé de l'accueil et des bavardages.
+* **Gestion Avancée de la Mémoire :**
+  * **Persistance :** Sauvegarde des conversations dans une base de données **MongoDB** (Thread ID).
+  * **Compresseur de Mémoire (Garbage Collector) :** Un nœud spécifique (`summarizer`) qui résume automatiquement les anciennes conversations pour économiser les tokens et éviter les crashs (Rate Limits) lors de l'analyse de gros fichiers.
+* **⚡ Interface Temps Réel :** Un backend **FastAPI** qui stream les réponses des agents en direct (SSE - Server-Sent Events) vers l'interface utilisateur.
 
-## Architecture Technique
+## Architecture du Projet
 
-* **LangGraph** : Moteur de raisonnement basé sur des graphes d'état. Il permet de chaîner des étapes de traitement (logique, appels d’outils, prise de décision) de façon modulaire, cyclique et traçable.
-* **FastAPI** : Serveur HTTP asynchrone et typé. Expose les points d’entrée de l’assistant via une API REST robuste, assurant une faible latence et intégrant nativement la documentation OpenAPI.
-* **Groq** : Fournisseur de modèles de langage (LLM) offrant des temps d'inférence ultra-rapides, essentiels pour une interaction conversationnelle fluide en temps réel.
-* **MongoDB** : Base de données NoSQL orientée document, utilisée pour la persistance des checkpoints LangGraph, le stockage des historiques de session et la gestion asynchrone de la mémoire.
+Le flux de travail (StateGraph) est modélisé comme suit :
+1. L'utilisateur envoie un message (via FastAPI).
+2. Le **Superviseur** analyse la demande et décide du prochain agent (`next_agent`).
+3. L'expert désigné (`system_agent`, `web_agent`, ou `general_agent`) réfléchit. S'il a besoin d'outils, il passe par la **Tool Room** (Salle des machines) et récupère les résultats.
+4. Une fois la tâche terminée, le dossier retourne au Superviseur.
+5. Si tout est fini, le Superviseur choisit `FINISH`. Le graphe passe alors par le **Summarizer** (si la conversation est longue) avant de terminer la boucle.
 
----
+### Structure des fichiers
 
-## Fonctionnalités & Optimisations
+* `state.py` : Définit la mémoire partagée (`AgentState`) entre les agents.
+* `graph.py` : Le cœur du réacteur. Contient les prompts des agents, les règles de routage, le bouclier anti-boucle et la définition du graphe LangGraph.
+* `tools.py` : Les fonctions Python exécutables par les IA (Recherche web, Terminal, Fichiers, etc.).
+* `api.py` : Le serveur FastAPI qui gère les requêtes Web, la base de données MongoDB et le streaming.
+* `index.html` : L'interface utilisateur (Frontend) pour discuter avec l'agent.
 
-* **Streaming en Temps Réel (SSE)** : Le backend FastAPI et le frontend communiquent via un flux continu (Server-Sent Events). L'affichage mot par mot des tokens générés par le LLM offre une expérience utilisateur ultra-fluide, sans temps d'attente lors de l'exécution des outils complexes.
-* **Gestion Autonome de la Mémoire** : Intégration d'un nœud d'auto-compression. Pour prévenir la surcharge du contexte (*Token Limit*) et l'engorgement de la base de données, l'agent résume silencieusement les anciennes conversations en arrière-plan et purge les anciens nœuds MongoDB, tout en conservant le contexte global.
-* **Sécurité Anti-Prompt Leaking & Hallucinations** : Le *Prompt Engineering* et les consignes système sont strictement cloisonnés. Des balises de sécurité invisibles empêchent le LLM de divulguer ses instructions internes ou d'inventer des données factuelles (*placeholder data*) sans faire appel à ses outils.
-* **Human-in-the-Loop (HITL)** : Sas de sécurité bloquant l'exécution d'outils critiques (envoi d'emails, modifications d'agenda) tant qu'une validation humaine explicite n'a pas été interceptée.
-* **Capacités Multimodales (Vision)** : L'agent dispose "d'yeux". L'interface web permet l'upload d'images (encodées en Base64), permettant au modèle d'analyser l'interface de l'utilisateur, de décrire des graphiques ou de contextualiser des problèmes visuels.`Il faut utiliser le model="meta-llama/llama-4-scout-17b-16e-instruct"`
+## Prérequis et Installation
 
----
+### 1. Variables d'environnement
+Créez un fichier `.env` à la racine du projet en vous basant sur le fichier `.env.example`. Vous aurez besoin de :
+* Clé API Groq (`GROQ_API_KEY`)
+* Clé API Tavily pour la recherche web (`TAVILY_API_KEY`)
+* URI de votre base de données MongoDB (`URI_MONGODB`)
 
-## Outils Intégrés
+### 2. Installation des dépendances
+Il est recommandé d'utiliser `uv` pour installer les dépendances du projet :
+```bash
+uv init
+source .venv/bin/activate
+uv pip install fastapi uvicorn langchain langchain-groq langgraph pymongo python-dotenv pydantic
+# Lancement Local
 
-L'agent dispose d'un arsenal d'outils lui permettant d'agir sur son environnement :
-
-| Nom de l'outil | Fonction | Cas d'usage |
-|---|---|---|
-| `execute_shell_command` | Exécution Terminal locale | Lancement de scripts, installation de paquets via `uv` (restreint par la liste blanche). |
-| `add_to_whitelist` | Gestion des permissions | Ajout dynamique et sécurisé de commandes autorisées dans `permissions.json` (protégé par HITL). |
-| `list_directory_contents` | Navigation locale (`ls`) | Vérification instantanée des fichiers présents dans le répertoire courant de l'agent. |
-| `search_local_file` | Recherche globale (`find`) | Recherche récursive d'un fichier spécifique sur le système pour récupérer son chemin absolu. |
-| `read_local_document` | Lecture de fichiers locaux (.txt, .pdf) | Analyse et extraction de contenu de documents fournis par l’utilisateur. |
-| `internet_search` | Recherche web via Tavily | Récupération de données factuelles, actualités en temps réel. |
-| `get_current_time` | Horodatage système | Planification, repères temporels pour la création d'événements. |
-| `scrape_web_page` | Scraping d’URL spécifique | Extraction du contenu brut d'une page web donnée. |
-| `read_recent_emails` | Lecture IMAP de la boîte de réception | Analyse, recherche et résumé des derniers messages reçus. |
-| `send_email` | Envoi d'emails via SMTP Google | Rédaction et envoi de courriels (protégé par HITL). |
-| `read_upcoming_events` | Lecture via API Google Calendar | Consultation de l'emploi du temps avec authentification OAuth 2.0. |
-| `Calendar` | Écriture via API Google Calendar | Ajout d'événements, réunions et rappels (protégé par HITL). |
-
----
-
-## Principes de Conception
-
-1. **Modularité** : Le découplage des composants (Frontend, API FastAPI, Graphe de raisonnement, Outils) facilite les tests unitaires et la maintenance.
-2. **Scalabilité** : L'utilisation de l'asynchrone (`async`/`await`) sur l'ensemble de la pile et la flexibilité de MongoDB permettent une mise à l'échelle aisée.
-3. **Sécurité First** : Gestion stricte des intentions (ex: pas d'appel API coûteux pour de simples salutations), protection des secrets via `.env`, et obligation de validation humaine pour les actions impactantes.
-4. **Extensibilité** : L'ajout d'une nouvelle capacité à l'agent se fait simplement par la création d'une fonction Python documentée et son injection dans la liste des nœuds LangGraph.
-5. **Robustesse du Tool Calling** : Typage dynamique (`Union[bool, str]`) pour anticiper et corriger silencieusement les erreurs de syntaxe générées par l'IA lors de l'utilisation d'outils.
-
----
-
-## Déploiement & Configuration
-
-### Prérequis
-* Python 3.10+
-* Docker & Docker Compose (Recommandé pour MongoDB)
-
-### Variables d'environnement (`.env`)
-À la racine du projet, créez un fichier `.env` contenant les clés suivantes :
-
-# API Keys
-GROQ_API_KEY=votre_cle_groq
-TAVILY_API_KEY=votre_cle_tavily
-
-# Base de données
-URI_MONGODB=mongodb://localhost:27017
-
-# SMTP / IMAP (Envoi et lecture d'emails)
-EMAIL_ADDRESS=votre_email@gmail.com
-EMAIL_PASSWORD=votre_mot_de_passe_d_application
-
-### Authentification Google Calendar (OAuth 2.0)
-
-Pour utiliser les outils d'agenda, vous devez configurer un écran de consentement OAuth sur la [Google Cloud Console](https://console.cloud.google.com/) et placer le fichier **`credentials.json`** téléchargé à la racine du projet. Un fichier `token.json` sera généré automatiquement lors de la première connexion. **Attention :** Ces deux fichiers doivent figurer dans votre `.gitignore`.
-
-### Lancement Local
-
-# 1. Démarrer la base de données MongoDB (si utilisation de Docker)
 docker-compose up -d
 
-# 2. Installer les dépendances
 pip install -r requirements.txt
 
-# 3. Lancer le serveur backend
 uvicorn api:app --reload
-
-Ce projet suit des normes strictes de développement. Toute modification du graphe d'état doit être accompagnée de tests pour s'assurer que les barrières de sécurité et le compresseur de mémoire restent fonctionnels.

@@ -56,18 +56,15 @@ async def chat_endpoint(request: ChatRequest):
                 kind = event["event"]
                 node_name = event["metadata"].get("langgraph_node")
 
-                # Handle streaming from agents
                 if kind == "on_chat_model_stream" and node_name in ["system_agent", "web_agent", "general_agent"]:
                     chunk = event["data"]["chunk"].content 
                     if isinstance(chunk, str) and chunk:
                         yield f"data: {json.dumps({'type': 'token', 'content': chunk})}\n\n"
-                
-                # Handle direct messages from Supervisor (e.g., greetings)
+
                 elif kind == "on_chain_end" and node_name == "supervisor":
                     output = event["data"].get("output")
                     if output and "messages" in output:
                         for msg in output["messages"]:
-                            # If it's a tuple or Message object, extract content
                             content = msg[1] if isinstance(msg, tuple) else getattr(msg, 'content', str(msg))
                             yield f"data: {json.dumps({'type': 'token', 'content': content})}\n\n"
                         

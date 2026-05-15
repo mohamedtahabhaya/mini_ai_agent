@@ -1,7 +1,7 @@
 from langgraph.graph import StateGraph, START, END 
 from langgraph.prebuilt import ToolNode
 from langchain_groq import ChatGroq
-from langchain_core.messages import SystemMessage 
+from langchain_core.messages import SystemMessage, RemoveMessage
 from state import AgentState
 from tools import system_tools, web_assistant_tools
 
@@ -12,69 +12,67 @@ def create_agent(llm, tools, system_prompt, agent_name):
     """Creates a specialized sub-agent with access to specific tools."""
     llm_with_tools = llm.bind_tools(tools)
     def agent_node(state: AgentState):
-        messages_for_llm = [SystemMessage(content=system_prompt)] + state["messages"]
+        summary = state.get("summary", "")
+        if summary:
+            full_prompt = f"{system_prompt}\n\nCONTEXT FROM PREVIOUS CONVERSATION: {summary}"
+        else:
+            full_prompt = system_prompt
+            
+        messages_for_llm = [SystemMessage(content=full_prompt)] + state["messages"]
         response = llm_with_tools.invoke(messages_for_llm)
         return {"messages": [response], "sender": agent_name}
         
     return agent_node
 
-system_prompt = """You are the System Expert for this AI team. You specialize in local computer operations like terminal commands, file management, and system navigation.
-When you receive a message, be professional and helpful. If the user is just saying hello, respond naturally. 
-Your primary tools allow you to "open" things, run scripts, and manage the local environment. Focus on being an efficient power-user for the local machine."""
+system_prompt = """You are the System Expert for this AI team. You specialize in local computer operations.
+You can execute terminal commands, read/write files, and navigate directories.
+Be professional and helpful. If the user is just saying hello, respond naturally. 
+Your primary tools allow you to "open" things, run scripts, and manage the local environment."""
 
-system_agent_node = create_agent(llm, system_tools, system_prompt, "system_agent")
-
-web_prompt = """You are the Web and Administrative Assistant for this AI team. You specialize in internet searches, email management, and calendar scheduling.
-You are proactive! If a user asks to "open" a video or a specific website (like "open Iron Man wake up scene on youtube"), DO NOT just show a search page. 
-Instead:
-1. Use `internet_search` to find the direct URL of the video or site.
-2. Use `open_item` (with is_url=True) to launch that specific URL for the user.
-If you are unsure of the link, search for it first, then open the best result. Be the "face" of the team and handle small talk warmly."""
-
-web_agent_node = create_agent(llm, web_assistant_tools, web_prompt, "web_agent")
+web_prompt = """You are the Web and Administrative Assistant for this AI team. You specialize in internet searches, emails, and calendar.
+You are proactive! If a user asks to "open" a specific video or website, use your search tools to find the URL and then open it immediately.
+Be warm and helpful. You are an expert in finding information online."""
 
 general_prompt = """You are the General Assistant and "concierge" of this AI team. 
 Your role is to handle greetings, general questions, and chitchat.
-IMPORTANT: While you don't have tools yourself, your TEAMMATES do. 
-- The System Expert can manage local files and the terminal.
-- The Web Assistant can search the internet, read/send emails, and manage the calendar.
-If a user asks what "you" (the team) can do, mention these capabilities. Be helpful, friendly, and concise."""
-
-general_agent_node = create_agent(llm, [], general_prompt, "general_agent")
+IMPORTANT: While you don't have tools yourself, your TEAMMATES do:
+- System Expert: Manages local files and the terminal.
+- Web Assistant: Searches the internet, reads/sends emails, and manages the calendar.
+If a user asks what we can do, mention these capabilities. Be friendly and concise."""
 
 supervisor_prompt = """You are the Supervisor of an AI team. 
-Your specialists are:
-- system_agent: Local computer specialist (files, terminal, local system).
-- web_agent: Web specialist (search, email, calendar).
-- general_agent: General assistant for greetings, chitchat, and basic questions.
-
-TASK:
-Determine which specialist should handle the user's request.
+Specialists:
+- system_agent: Local computer tasks (files, terminal).
+- web_agent: Web tasks (search, email, calendar).
+- general_agent: Greetings, chitchat, and general questions.
 
 ROUTING RULES:
-1. If the request is a greeting, small talk, or a general question that needs no tools -> route to 'general_agent'.
-2. If the user mentions: file, directory, folder, terminal, computer, local, or local read/write tasks -> route to 'system_agent'.
-3. If the user mentions: web, internet, email, calendar, search, or online videos (youtube, etc.) -> route to 'web_agent'.
-4. If the user asks to "open" a local file or local path, route to 'system_agent'.
-5. If the user asks to "open" a URL, a website, or an online video, route to 'web_agent'.
-6. If the request is fully completed, respond with 'FINISH'.
+1. Greetings/General talk -> route to 'general_agent'.
+2. Local files/Terminal -> route to 'system_agent'.
+3. Web/Email/Calendar/YouTube -> route to 'web_agent'.
+4. To "open" a local file -> route to 'system_agent'. To "open" a URL/video -> route to 'web_agent'.
+5. If the request is completed -> route to 'FINISH'.
 
-RESPOND STRICTLY AND ONLY WITH ONE OF THESE 4 WORDS:
-system_agent
-web_agent
-general_agent
-FINISH
-"""
+RESPOND ONLY WITH ONE WORD: system_agent, web_agent, general_agent, or FINISH."""
+
+system_agent_node = create_agent(llm, system_tools, system_prompt, "system_agent")
+web_agent_node = create_agent(llm, web_assistant_tools, web_prompt, "web_agent")
+general_agent_node = create_agent(llm, [], general_prompt, "general_agent")
 
 def supervisor_node(state: AgentState):
     print("[SUPERVISOR] Analyzing the request...")
-    messages_for_llm = [SystemMessage(content=supervisor_prompt)] + state["messages"]
+    summary = state.get("summary", "")
+    full_prompt = supervisor_prompt
+    if summary:
+        full_prompt += f"\n\nCONTEXT FROM PREVIOUS CONVERSATION: {summary}"
+        
+    messages_for_llm = [SystemMessage(content=full_prompt)] + state["messages"]
 
     try:
         response = llm.invoke(messages_for_llm)
         text = response.content.strip().lower()
     except Exception as e:
-        print(f"[SUPERVISOR] LLM Error : {e} Forcing FINISH.")
+        print(f"[SUPERVISOR] Error: {e}")
         text = "finish"
 
     if "system_agent" in text:
@@ -86,13 +84,44 @@ def supervisor_node(state: AgentState):
     else:
         decision = "FINISH"
 
-    # Loop protection
     if decision == state.get("sender"):
-        print(f"[ANTI-LOOP] Forcing FINISH.")
         decision = "FINISH"
 
     print(f"[SUPERVISOR] Route -> {decision}")
     return {"next_agent": decision, "sender": "supervisor"}
+
+def summarize_conversation(state: AgentState):
+    """Summarizes the conversation history to save tokens."""
+    print("[MEMORY] Summarizing old messages...")
+    summary = state.get("summary", "")
+    
+    if summary:
+        summary_prompt = f"Current summary: {summary}\n\nExtend this summary with the following new messages:"
+    else:
+        summary_prompt = "Summarize the following conversation history concisely:"
+
+    messages = state["messages"]
+    messages_to_summarize = messages[:-4]
+    
+    if not messages_to_summarize:
+        return {}
+
+    response = llm.invoke([SystemMessage(content=summary_prompt)] + messages_to_summarize)
+    
+    prune_commands = [RemoveMessage(id=m.id) for m in messages_to_summarize if hasattr(m, "id") and m.id]
+    
+    return {
+        "summary": response.content,
+        "messages": prune_commands
+    }
+
+def route_after_supervisor(state: AgentState):
+    decision = state["next_agent"]
+    if decision == "FINISH":
+        if len(state["messages"]) > 10:
+            return "summarize"
+        return END
+    return decision
 
 def route_after_agent(state: AgentState):
     """Did the agent call a tool, or is it done talking?"""
@@ -115,21 +144,27 @@ builder.add_node("system_agent", system_agent_node)
 builder.add_node("web_agent", web_agent_node)
 builder.add_node("general_agent", general_agent_node)
 builder.add_node("tools", tool_node)
+builder.add_node("summarize", summarize_conversation)
 
 builder.add_edge(START, "supervisor")
 
 builder.add_conditional_edges(
     "supervisor",
-    lambda state: state["next_agent"], 
+    route_after_supervisor, 
     {
         "system_agent": "system_agent",
         "web_agent": "web_agent",
         "general_agent": "general_agent",
-        "FINISH": END
+        "summarize": "summarize",
+        END: END
     }
 )
+
+builder.add_edge("summarize", END)
 
 builder.add_conditional_edges("system_agent", route_after_agent, {"tools": "tools", "supervisor": "supervisor"})
 builder.add_conditional_edges("web_agent", route_after_agent, {"tools": "tools", "supervisor": "supervisor"})
 builder.add_conditional_edges("general_agent", route_after_agent, {"tools": "tools", "supervisor": "supervisor"})
 builder.add_conditional_edges("tools", route_after_tools, {"system_agent": "system_agent", "web_agent": "web_agent"})
+
+builder = builder
